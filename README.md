@@ -1,54 +1,33 @@
-🐍 Código em Python (app.py)
-🚀 Introdução
-Precisamos deste arquivo para iniciar um servidor utilizando a biblioteca Flask.
+# Código em Python (`app.py`)
 
-Ele também é necessário para que o navegador possa ler e processar os dados do sensor, exibindo um gráfico e estatísticas sobre os resultados obtidos.
+## 🧠 Introdução
+- Precisamos do arquivo para iniciar um **servidor Flask**.  
+- Ele é responsável por permitir que o **navegador leia, processe e exiba** gráficos e estatísticas com base nos dados coletados pelo **sensor**.
 
-🏁 Iniciando
-Imports
-Começamos com os Imports necessários para o Flask, processamento de dados (Pandas) e manipulação de arquivos.
+---
 
-Função de Estatísticas
-Em seguida, criamos uma função de estatísticas (ex: calculate_statistics), que vai calcular o maior e menor valor, a mediana, a média e o desvio padrão a partir de um conjunto de dados.
+## 🚀 Iniciando
+1. **Imports necessários:**  
+   Iniciamos o arquivo importando as bibliotecas utilizadas no projeto.
 
-Função "Cérebro" (Processamento)
-Após isso, criamos a função que será “O cérebro”, chamada get_processed_data.
+2. **Função de estatísticas:**  
+   Responsável por calcular:
+   - Maior valor  
+   - Menor valor  
+   - Mediana  
+   - Desvio padrão  
 
-Essa função fará a leitura do data.csv, processará os dados, aplicará filtros de tempo e preparará o pacote de informações (rótulos e valores para o gráfico), além de calcular as estatísticas para o período filtrado.
+3. **Função principal (`get_processed_data`):**  
+   É o “**cérebro**” da aplicação.  
+   Essa função:
+   - Lê o arquivo `data.csv`  
+   - Processa e organiza os dados  
+   - Calcula média, maior, menor e mediana  
+   - Prepara o pacote de informações a ser exibido  
 
-🌐 Rotas (Endpoints)
-Rota Principal: /
-Criamos a rota principal @app.route("/").
+---
 
-Ela identifica qual o filtro de tempo que o usuário deseja ver (via argumentos da URL, ex: /?filter=last_day).
-
-Chama a função get_processed_data com esse filtro.
-
-Pega os resultados e preenche o template index.html.
-
-Rota API: /json/all
-Outra rota é a @app.route("/json/all").
-
-Esta é uma rota de API, o que significa que ela não foi feita para mostrar uma página web, e sim para fornecer dados puros em formato JSON.
-
-Ela fornece TODOS os dados e estatísticas do arquivo data.csv, sem filtros.
-
-Rota API: /json/export
-A última é a @app.route("/json/export").
-
-Tem o trabalho de iniciar um download pegando todos os dados.
-
-Converte esses dados para formato JSON.
-
-Cria um arquivo temporário na memória.
-
-Finalmente, envia o arquivo para download no navegador do usuário como data_export.json.
-
-🏃‍♂️ Final (Execução)
-E para conseguirmos ligar o servidor, usamos app.run().
-
-Este é o comando para iniciar o servidor do Flask.
-
-Por padrão, o Flask roda em localhost.
-
-Ao definir host='0.0.0.0', estamos dizendo ao servidor para "ouvir" em todas as interfaces de rede disponíveis, tornando-o acessível por outros dispositivos na rede local.
+## 🌐 Rotas
+1. **Rota principal**  
+   ```python
+   @app.route("/")
