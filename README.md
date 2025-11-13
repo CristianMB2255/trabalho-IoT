@@ -1,33 +1,55 @@
 # Código em Python (`app.py`)
 
-## 🧠 Introdução
-- Precisamos do arquivo para iniciar um **servidor Flask**.  
-- Ele é responsável por permitir que o **navegador leia, processe e exiba** gráficos e estatísticas com base nos dados coletados pelo **sensor**.
+## 🧩 Introdução
+- Precisamos do arquivo para **iniciar um servidor** utilizando a biblioteca **Flask**.  
+- Também é necessário para que o **navegador leia e processe os dados**, gerando **gráficos e estatísticas** sobre os resultados obtidos pelo sensor.
 
 ---
 
 ## 🚀 Iniciando
-1. **Imports necessários:**  
-   Iniciamos o arquivo importando as bibliotecas utilizadas no projeto.
 
-2. **Função de estatísticas:**  
-   Responsável por calcular:
-   - Maior valor  
-   - Menor valor  
-   - Mediana  
-   - Desvio padrão  
+### Imports
+- Começamos com os **imports necessários** para o funcionamento do Flask e manipulação dos dados.
 
-3. **Função principal (`get_processed_data`):**  
-   É o “**cérebro**” da aplicação.  
-   Essa função:
-   - Lê o arquivo `data.csv`  
-   - Processa e organiza os dados  
-   - Calcula média, maior, menor e mediana  
-   - Prepara o pacote de informações a ser exibido  
+### Função de Estatísticas
+- Criamos uma função de **estatísticas**, que calcula:
+  - **Maior valor**
+  - **Menor valor**
+  - **Mediana**
+  - **Desvio padrão**
+
+### Função Principal (`get_processed_data`)
+- Essa função é o **"cérebro"** do sistema.
+- Ela:
+  - Lê o arquivo `data.csv`
+  - Processa os dados
+  - Prepara um **pacote de informações**
+  - Calcula **média**, **maior**, **menor** e **mediana**
 
 ---
 
 ## 🌐 Rotas
-1. **Rota principal**  
-   ```python
-   @app.route("/")
+
+### `/` (Rota Principal)
+- Define **qual filtro de tempo** o usuário deseja visualizar.  
+- Chama a função `get_processed_data()` com o filtro escolhido.  
+- Retorna os resultados para preencher o template **`index.html`**.
+
+### `/json/all`
+- Rota de **API** (não exibe página web).  
+- Retorna **todos os dados e estatísticas** do arquivo `data.csv` em formato **JSON**.
+
+### `/json/export`
+- Responsável por **fazer o download dos dados**:
+  - Obtém todas as informações com `get_all_data`
+  - Converte os dados para **JSON**
+  - Cria um **arquivo temporário na memória**
+  - Realiza o **download automático** pelo navegador do usuário
+
+---
+
+## 🔚 Finalização
+
+- Para ligar o servidor, utilizamos:
+  ```python
+  app.run()
