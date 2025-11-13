@@ -1,9 +1,2 @@
-Flask
-pandas
-json
-io
-render_template
-jsonify
-request
-send_file
 flask
+pandas
