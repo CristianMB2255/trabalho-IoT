@@ -63,9 +63,10 @@
 ## 🔚 Finalização
 
 - Para ligar o servidor, utilizamos:
+  <img width="517" height="98" alt="image" src="https://github.com/user-attachments/assets/3310b9e8-b060-4bf2-97f8-4ecfc0789bb9" />
   ```python
   app.run()
-  <img width="517" height="98" alt="image" src="https://github.com/user-attachments/assets/0cc6b831-993f-43c0-8fc4-bc339efec3a8" />
+
 
   
 
