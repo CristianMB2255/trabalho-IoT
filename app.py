@@ -143,31 +143,6 @@ def index():
         current_filter=filter_arg
     )
 
-@app.route("/json/all")
-def api_all_data():
-    processed_data = get_processed_data(timeframe_hours='all', limit=1000000)
-    return jsonify(processed_data)
-
-@app.route("/json/export")
-def api_export_data():
-    processed_data = get_processed_data(timeframe_hours='all', limit=1000000)
-    try:
-        json_data = json.dumps(processed_data, indent=4)
-        buffer = io.BytesIO()
-        buffer.write(json_data.encode('utf-8'))
-        buffer.seek(0) 
-        
-        return send_file(
-            buffer,
-            as_attachment=True,
-            download_name='export_data.json',
-            mimetype='application/json'
-        )
-        
-    except Exception as e:
-        print(f"Erro ao exportar JSON: {e}")
-        return jsonify({"status": "error", "message": "Falha ao exportar arquivo JSON"}), 500
-
 if __name__ == '__main__':
     print("Iniciando o servidor Flask...")
     app.run(host='0.0.0.0')
