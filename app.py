@@ -5,19 +5,25 @@ import math
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import os
+import redis
+import json
 
 app = Flask(__name__)
 
-pg_user = os.getenv("PGUSER")
-pg_password = os.getenv("PGPASS")
-pg_host = os.getenv("PGHOST")
-pg_db = os.getenv("PGDB")
-
+pg_user    = os.getenv("PGUSER")
+pg_pass    = os.getenv("PGPASS")
+pg_host    = os.getenv("PGHOST")
+pg_db      = os.getenv("PGDB")
+redis_host = os.getenv("RHOST")
+redis_port = os.getenv("RPORT")
+redis_user = os.getenv("RUSER")
+redis_pass = os.getenv("RPASS")
+ 
 def get_db_connection():
     """Create database connection with PostgreSQL."""
     return psycopg2.connect(
                 user=pg_user,
-                password=pg_password,
+                password=pg_pass,
                 host=pg_host,
                 database=pg_db,
                 sslmode="require"
@@ -25,7 +31,6 @@ def get_db_connection():
 
 def calculate_stats(series):
     """Calculate data metricas and return as object."""
-
     if series.empty:
         return {
             "max": None,
@@ -43,101 +48,62 @@ def calculate_stats(series):
         "std_dev": round(series.std(), 2)
     }
 
-def get_processed_data(timeframe_hours='all', start_date=None, end_date=None, page=1, limit=50): 
-    """Get data and important infos, return as object."""
+def get_data_db():
+    """Fetch all data in db."""
     try:
         connection = get_db_connection()
 
         # Faz as consultas retornarem dicts
         cursor = connection.cursor(cursor_factory=RealDictCursor)
 
-        # Consulta base sem parâmetros
-        params = []
-        query = "SELECT timestamp, temperature, humidity FROM data"
+        query = "SELECT timestamp, temperature, humidity FROM data ORDER BY timestamp DESC"
 
-        if start_date and end_date:
-            query += " WHERE timestamp BETWEEN %s AND %s"
-            params.extend([start_date, end_date])
-
-        elif timeframe_hours != 'all':
-            cutoff_time = dt.datetime.now() - dt.timedelta(hours=float(timeframe_hours))
-
-            query += " WHERE timestamp >= %s"
-            params.append(cutoff_time)
-
-        query += " ORDER BY timestamp DESC"
-
-        cursor.execute(query, params)
+        cursor.execute(query)
 
         rows = cursor.fetchall()
 
         cursor.close()
         connection.close()
 
-        if not rows:
-            empty_stats = calculate_stats(pd.Series(dtype=float))
-
-            return {
-                "data": [],
-                "timeframe_hours": timeframe_hours,
-                "temperature_infos": empty_stats,
-                "humidity_infos": empty_stats,
-                "pagination": {
-                    "page": 1,
-                    "limit": limit,
-                    "total_pages": 1,
-                    "total_records": 0
-                }
-            }
-
-        df = pd.DataFrame(rows)
-
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-
-        # Postgres Decimal -> float
-        df['temperature'] = pd.to_numeric(df['temperature'])
-        df['humidity'] = pd.to_numeric(df['humidity'])
-
-        temperature_stats = calculate_stats(df['temperature'])
-        humidity_stats = calculate_stats(df['humidity'])
-
-        # TODO: cache total length for query optimization 
-        total_records = len(df)
-        total_pages = math.ceil(total_records / limit)
-
-        if page < 1:
-            page = 1
-
-        if page > total_pages and total_pages > 1:
-            page = total_pages
-
-        start_index = (page - 1) * limit
-        end_index = start_index + limit
-
-        paginated_df = df.iloc[end_index:start_index:-1].copy()
-
-        paginated_df['timestamp'] = paginated_df['timestamp'].dt.strftime(
-            '%Y-%m-%d %H:%M'
-        )
-
-        data_list = paginated_df.to_dict('records')
- 
-        return {
-            "data": data_list,
-            "timeframe_hours": timeframe_hours,
-            "temperature_infos": temperature_stats,
-            "humidity_infos": humidity_stats,
-            "pagination": {
-                "page": page,
-                "limit": limit,
-                "total_pages": total_pages,
-                "total_records": total_records
-            }
-        }
-
+        return rows
+    
     except Exception as e:
         print(f"Erro ao buscar dados do PostgreSQL: {e}")
 
+        return None 
+
+def get_data():
+    """Fetch all data."""
+    r = redis.Redis(
+        host=redis_host,
+        port=redis_port,
+        decode_responses=True,
+        username=redis_user,
+        password=redis_pass,
+    )
+
+    key = "data"
+
+    # Fetch cache
+    data = r.get(key)
+
+    if data:
+        return json.loads(data)
+    
+    #Fetch db
+    data = get_data_db()
+
+    if data:
+        r.setex("data", 900, json.dumps(data, default=str))
+
+    return data    
+
+def get_processed_data(timeframe_hours='all', start_date=None, end_date=None, page=1, limit=50): 
+    """Get stored data, return as object."""
+
+    rows = get_data()
+
+    if not rows:
         empty_stats = calculate_stats(pd.Series(dtype=float))
 
         return {
@@ -152,6 +118,64 @@ def get_processed_data(timeframe_hours='all', start_date=None, end_date=None, pa
                 "total_records": 0
             }
         }
+
+    df = pd.DataFrame(rows)
+
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+
+    # Postgres Decimal -> float
+    df['temperature'] = pd.to_numeric(df['temperature'])
+    df['humidity'] = pd.to_numeric(df['humidity'])
+
+    # Time filter
+    if start_date and end_date:
+        start_date = pd.to_datetime(start_date)
+        end_date = pd.to_datetime(end_date)
+
+        df = df.query("@start_date < timestamp < @end_date")
+
+    # Timeframe filter
+    elif timeframe_hours != 'all':
+        cutoff_time = dt.datetime.now() - dt.timedelta(hours=float(timeframe_hours))
+
+        df = df.query("timestamp > @cutoff_time")
+        
+    temperature_stats = calculate_stats(df['temperature'])
+    humidity_stats = calculate_stats(df['humidity'])
+
+    total_records = len(df)
+    total_pages = math.ceil(total_records / limit)
+
+    if page < 1:
+        page = 1
+
+    if page > total_pages and total_pages > 1:
+        page = total_pages
+
+    start_index = (page - 1) * limit
+    end_index = start_index + limit
+
+    # Cut data to be rendered
+    paginated_df = df.iloc[end_index - 1:start_index:-1].copy()
+
+    paginated_df['timestamp'] = paginated_df['timestamp'].dt.strftime(
+        '%Y-%m-%d %H:%M'
+    )
+
+    data_list = paginated_df.to_dict('records')
+
+    return {
+        "data": data_list,
+        "timeframe_hours": timeframe_hours,
+        "temperature_infos": temperature_stats,
+        "humidity_infos": humidity_stats,
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total_pages": total_pages,
+            "total_records": total_records
+        }
+    }
 
 @app.route("/")
 def index():
