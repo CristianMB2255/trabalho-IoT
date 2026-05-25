@@ -185,8 +185,8 @@ def get_processed_data(timeframe_hours='all', start_date=None, end_date=None, pa
 @app.route("/")
 def index():
 
-    IS_LATEST = True
-
+    date_pos = 'left'
+    
     def generate_chart():
         pts = []
         base = dt.datetime.fromisoformat("2024-05-20T00:00:00")
@@ -212,10 +212,9 @@ def index():
             })
 
         return pts
-
-    if IS_LATEST:
-        dtt = {
-            "is_latest": True,
+    
+    dtt = {
+            # "is_latest": True,
             "current": {
                 "date": "20/05",
                 "temperature": 19,
@@ -224,44 +223,38 @@ def index():
             },
             "prev": {
                 "date": "19/05",
-                "temperature": 19,
-                "humidity": 55
+                "temperature": 18,
+                "humidity": 56
             },
-            "next": None,
             "prev2": {
                 "date": "18/05",
-                "temperature": 18,
+                "temperature": 17,
                 "humidity": 60
-            },
-            "chart_data": generate_chart()
-        }
-
-    else:
-        dtt = {
-            "is_latest": False,
-            "current": {
-                "date": "20/05",
-                "temperature": 19,
-                "humidity": 55,
-                "mean_temperature": 19.5
-            },
-            "prev": {
-                "date": "19/05",
-                "temperature": 19,
-                "humidity": 55
             },
             "next": {
                 "date": "21/05",
                 "temperature": 20,
                 "humidity": 52
             },
-            "prev2": None,
+            "next2": {
+                "date": "22/05",
+                "temperature": 21,
+                "humidity": 53
+            },
+            
             "chart_data": generate_chart()
         }
     
+    if date_pos == 'left':
+        dtt.update({'selected_date_position': 'left'})
+    elif date_pos == 'middle':
+        dtt.update({'selected_date_position': 'middle'})
+    elif date_pos == 'right':
+        dtt.update({'selected_date_position': 'right'})
+
     return render_template(
         "index.html",
-        data=dtt
+        data=(dtt)
     )
     
     start_date = request.args.get('start_date')

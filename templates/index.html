@@ -75,16 +75,21 @@
         const data = {{ data | tojson | safe }};
 
         const container = document.getElementById('top-container');
-        const { chart_data, is_latest, current, prev, next, prev2 } = data;
+        const { chart_data, selected_date_position, current, prev, prev2, next, next2 } = data;
 
-        if (is_latest) {
-            // Grid: Secondary | Secondary | Primary
-            container.style.gridTemplateColumns = '1fr 1fr 2fr';
-            container.innerHTML = createSecondaryCard(prev2) + createSecondaryCard(prev) + createMainCard(current);
-        } else {
+        if (selected_date_position === "left") {
+            // Grid: Primary | Secondary | Secondary
+            container.style.gridTemplateColumns = '2fr 1fr 1fr';
+            container.innerHTML = createMainCard(current) + createSecondaryCard(next) + createSecondaryCard(next2);
+        }
+        if (selected_date_position === "middle") {
             // Grid: Secondary | Primary | Secondary
             container.style.gridTemplateColumns = '1fr 2fr 1fr';
             container.innerHTML = createSecondaryCard(prev) + createMainCard(current) + createSecondaryCard(next);
+        } else if (selected_date_position === "right") {
+            // Grid: Secondary | Secondary | Primary
+            container.style.gridTemplateColumns = '1fr 1fr 2fr';
+            container.innerHTML = createSecondaryCard(prev2) + createSecondaryCard(prev) + createMainCard(current);
         }
 
         // Chart
