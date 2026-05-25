@@ -1,25 +1,156 @@
-body {
-    background-color: rgb(225, 239, 239);
-    margin: 0;
-    min-height: 100vh;
+:root {
+    --text-primary: #181c20;
+    --text-secondary: #6b7280;
+    --shadow:
+        0 1px 3px rgba(0, 0, 0, 0.06),
+        0 1px 8px rgba(0, 0, 0, 0.04);
 }
 
-.container {
-    padding-bottom: 2rem;
+body {
+    min-height: 100vh;
+    padding: 2rem 1.5rem;
+    font-family: 'DM Sans', sans-serif;
+    color: var(--text-primary);
+    background: #eef2f5;
+}
+
+.wrapper {
+    max-width: 900px;
+    margin: 0 auto;
 }
 
 .card {
-    border: none;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    border-radius: 10px;
+    padding: 1.5rem 2rem;
+    background: var(#ffffff);
+    border: 0.5px solid rgba(0, 0, 0, 0.07);
+    border-radius: 20px;
+    box-shadow: var(--shadow);
 }
 
-.btns-group .btn {
+.top-container {
+    display: grid;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.day-card {
+    cursor: pointer;
+}
+
+.day-card .date {
+    margin-bottom: 10px;
+    font-size: 12px;
     font-weight: 500;
+    letter-spacing: 0.03em;
+    color: var(--text-secondary);
 }
 
-.chart {
+.day-card .icon {
+    margin-bottom: 8px;
+    font-size: 2rem;
+    color: #FFDF22;
+}
+
+.card-index {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.day-card .active-index {
+    margin-bottom: 4px;
+    font-size: 1.25rem;
+    font-weight: 600;
+
+    color: var(--text-primary);
+}
+
+.day-card .temperature i {
+    color: #c0645a;
+}
+
+.day-card .humidity i {
+    color: #5ba7d0;
+}
+
+.main-card {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.main-card .main-date {
+    margin-bottom: 12px;
+    font-size: 3.6rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.03em;
+}
+
+.main-card .main-temp {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+    font-size: 2rem;
+    font-weight: 700;
+}
+
+.main-card .sub {
+    margin-bottom: 2px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.main-card .main-icon {
+    font-size: 4.5rem;
+    line-height: 1;
+    color: #FFDF22;
+}
+
+.icon-weather {
+    color: #ffc10a;
+}
+
+.icon-temp {
+    color: #e56b6f;
+}
+
+.icon-water {
+    color: #4ea8de;
+}
+
+.chart-card {
+    padding: 1.5rem 1.5rem 1.1rem;
+}
+
+.chart-wrap {
     position: relative;
-    height: 300px;
     width: 100%;
+    height: 260px;
+}
+
+.chart-tablist {
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+}
+
+.tablist-item {
+    cursor: pointer;
+}
+
+.tablist-separator {
+    color: var(--text-secondary);
+}
+
+.tablist-active {
+    text-decoration: underline;
+}
+
+.tablist-disabled {
+    color: var(--text-secondary);
 }
