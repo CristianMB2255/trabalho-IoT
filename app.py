@@ -6,6 +6,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import os
 import redis
+import random
 import json
 
 app = Flask(__name__)
@@ -18,6 +19,9 @@ redis_host = os.getenv("RHOST")
 redis_port = os.getenv("RPORT")
 redis_user = os.getenv("RUSER")
 redis_pass = os.getenv("RPASS")
+
+# Data stored every 10 minutes, takes X steps to a complete hour
+HOUR_STEPS = 6 
  
 def get_db_connection():
     """Create database connection with PostgreSQL."""
@@ -139,9 +143,6 @@ def get_processed_data(timeframe_hours='all', start_date=None, end_date=None, pa
         cutoff_time = dt.datetime.now() - dt.timedelta(hours=float(timeframe_hours))
 
         df = df.query("timestamp > @cutoff_time")
-        
-    temperature_stats = calculate_stats(df['temperature'])
-    humidity_stats = calculate_stats(df['humidity'])
 
     total_records = len(df)
     total_pages = math.ceil(total_records / limit)
@@ -152,15 +153,19 @@ def get_processed_data(timeframe_hours='all', start_date=None, end_date=None, pa
     if page > total_pages and total_pages > 1:
         page = total_pages
 
-    start_index = (page - 1) * limit
-    end_index = start_index + limit
+    start_index = (page - 1) * (limit * HOUR_STEPS)
+    end_index = start_index + (limit * HOUR_STEPS)
 
     # Cut data to be rendered
-    paginated_df = df.iloc[end_index - 1:start_index:-1].copy()
+    paginated_df = df.iloc[end_index - 1:start_index:-HOUR_STEPS].copy()
 
     paginated_df['timestamp'] = paginated_df['timestamp'].dt.strftime(
-        '%Y-%m-%d %H:%M'
+        #'%Y-%m-%d %H:%M'
+        '%H:00'
     )
+
+    temperature_stats = calculate_stats(paginated_df['temperature'])
+    humidity_stats = calculate_stats(paginated_df['humidity'])
 
     data_list = paginated_df.to_dict('records')
 
@@ -179,6 +184,86 @@ def get_processed_data(timeframe_hours='all', start_date=None, end_date=None, pa
 
 @app.route("/")
 def index():
+
+    IS_LATEST = True
+
+    def generate_chart():
+        pts = []
+        base = dt.datetime.fromisoformat("2024-05-20T00:00:00")
+
+        for i in range(24):
+            t = base + dt.timedelta(hours=i)
+
+            pts.append({
+                "timestamp": t.strftime("%H:%M"),
+                "temperature": round(
+                    17.8
+                    + math.sin(i / 6) * 1.2
+                    + i * 0.04
+                    + (random.random() - 0.5) * 0.3,
+                    1
+                ),
+                "humidity": round(
+                    55
+                    + math.cos(i / 5) * 4
+                    + (random.random() - 0.5) * 2,
+                    1
+                )
+            })
+
+        return pts
+
+    if IS_LATEST:
+        dtt = {
+            "is_latest": True,
+            "current": {
+                "date": "20/05",
+                "temperature": 19,
+                "humidity": 55,
+                "mean_temperature": 19.5
+            },
+            "prev": {
+                "date": "19/05",
+                "temperature": 19,
+                "humidity": 55
+            },
+            "next": None,
+            "prev2": {
+                "date": "18/05",
+                "temperature": 18,
+                "humidity": 60
+            },
+            "chart_data": generate_chart()
+        }
+
+    else:
+        dtt = {
+            "is_latest": False,
+            "current": {
+                "date": "20/05",
+                "temperature": 19,
+                "humidity": 55,
+                "mean_temperature": 19.5
+            },
+            "prev": {
+                "date": "19/05",
+                "temperature": 19,
+                "humidity": 55
+            },
+            "next": {
+                "date": "21/05",
+                "temperature": 20,
+                "humidity": 52
+            },
+            "prev2": None,
+            "chart_data": generate_chart()
+        }
+    
+    return render_template(
+        "index.html",
+        data=dtt
+    )
+    
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
     filter_arg = request.args.get('filter', 'all')
