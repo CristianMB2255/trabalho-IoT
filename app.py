@@ -185,6 +185,9 @@ def get_processed_data(timeframe_hours='all', start_date=None, end_date=None, pa
 @app.route("/")
 def index():
 
+    selected_data = request.args.get('date')
+
+    
     date_pos = 'left'
     
     def generate_chart():
@@ -216,28 +219,28 @@ def index():
     dtt = {
             # "is_latest": True,
             "current": {
-                "date": "20/05",
+                "date": "20-05-2026",
                 "temperature": 19,
                 "humidity": 55,
                 "mean_temperature": 19.5
             },
             "prev": {
-                "date": "19/05",
+                "date": "19-05-2026",
                 "temperature": 18,
                 "humidity": 56
             },
             "prev2": {
-                "date": "18/05",
+                "date": "18-05-2026",
                 "temperature": 17,
                 "humidity": 60
             },
             "next": {
-                "date": "21/05",
+                "date": "21-05-2026",
                 "temperature": 20,
                 "humidity": 52
             },
             "next2": {
-                "date": "22/05",
+                "date": "22-05-2026",
                 "temperature": 21,
                 "humidity": 53
             },

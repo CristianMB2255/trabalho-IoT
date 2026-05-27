@@ -6,13 +6,22 @@ function updateUrl(params) {
     window.location.href = url.toString();
 };
 
+function normalizeDate(date) {
+    if (!date) return;
+
+    const newDate = date.split('-');
+    newDate.pop();
+
+    return newDate.join('/');
+}
+
 function createSecondaryCard(day) {
     return `
-            <div class="card day-card" onclick="updateUrl({ date: '${day.date}'})">
-                <div class="date">${day.date}</div>
+            <div class="card day-card" onclick="updateUrl({ date: '${day?.date || "N/D"}'})">
+                <div class="date">${normalizeDate(day?.date) || "N/D"}</div>
                 <div class="icon"><i class="ph-duotone ph-cloud-sun icon-weather"></i></div>
-                <div class="card-index active-index temperature"><i class="ph-duotone ph-thermometer icon-temp"></i>${day.temperature}°C</div>
-                <div class="card-index humidity"><i class="ph-duotone ph-drop icon-water"></i>${day.humidity}%</div>
+                <div class="card-index active-index temperature"><i class="ph-duotone ph-thermometer icon-temp"></i>${day?.temperature || "N/D"}°C</div>
+                <div class="card-index humidity"><i class="ph-duotone ph-drop icon-water"></i>${day?.humidity || "N/D"}%</div>
             </div>`;
 };
 
@@ -20,10 +29,10 @@ function createMainCard(day) {
     return `
             <div class="card main-card">
                 <div>
-                <div class="main-date">${day.date}</div>
-                <div class="main-temp" id="main-primary">${day.temperature}°C</div>
-                <div class="sub" id="main-secondary">Humidity: ${day.humidity}%</div>
-                <div class="sub">Mean temperature: ${day.mean_temperature}° C</div>
+                <div class="main-date">${normalizeDate(day?.date) || "N/D"}</div>
+                <div class="main-temp" id="main-primary">${day?.temperature || "N/D"}°C</div>
+                <div class="sub" id="main-secondary">Humidity: ${day?.humidity || "N/D"}%</div>
+                <div class="sub">Mean temperature: ${day?.mean_temperature || "N/D"}° C</div>
                 </div>
                 <div class="main-icon"><i class="ph-duotone ph-cloud-sun icon-weather"></i></div>
             </div>`;
