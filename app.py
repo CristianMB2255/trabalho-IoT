@@ -20,10 +20,10 @@ redis_port = os.getenv("RPORT")
 redis_user = os.getenv("RUSER")
 redis_pass = os.getenv("RPASS")
 
-# Data stored every 10 minutes, takes X steps to a complete hour
+# Data stored every 10 minutes, takes X steps to a complete an hour
 HOUR_STEPS = 6 
  
-def get_db_connection():
+def create_db_connection():
     """Create database connection with PostgreSQL."""
     return psycopg2.connect(
                 user=pg_user,
@@ -33,52 +33,9 @@ def get_db_connection():
                 sslmode="require"
             ) 
 
-def calculate_stats(series):
-    """Calculate data metricas and return as object."""
-    if series.empty:
-        return {
-            "max": None,
-            "min": None,
-            "avg": None,
-            "median": None,
-            "std_dev": None
-        }
-
-    return {
-        "max": round(series.max(), 2),
-        "min": round(series.min(), 2),
-        "avg": round(series.mean(), 2),
-        "median": round(series.median(), 2),
-        "std_dev": round(series.std(), 2)
-    }
-
-def get_data_db():
-    """Fetch all data in db."""
-    try:
-        connection = get_db_connection()
-
-        # Faz as consultas retornarem dicts
-        cursor = connection.cursor(cursor_factory=RealDictCursor)
-
-        query = "SELECT timestamp, temperature, humidity FROM data ORDER BY timestamp DESC"
-
-        cursor.execute(query)
-
-        rows = cursor.fetchall()
-
-        cursor.close()
-        connection.close()
-
-        return rows
-    
-    except Exception as e:
-        print(f"Erro ao buscar dados do PostgreSQL: {e}")
-
-        return None 
-
-def get_data():
-    """Fetch all data."""
-    r = redis.Redis(
+def create_cache_connection():
+    """Create connection with redis cache."""
+    return redis.Redis(
         host=redis_host,
         port=redis_port,
         decode_responses=True,
@@ -86,107 +43,108 @@ def get_data():
         password=redis_pass,
     )
 
-    key = "data"
+def dates_around(date, days_before=2, days_after=2):
+    """Produce a list containing the surrounding dates."""
+    return [
+        (date + dt.timedelta(days=i)).strftime("%d-%m-%Y")
+        for i in range(-days_before, days_after + 1)
+    ]
 
-    # Fetch cache
-    data = r.get(key)
+def dates_boundaries(dates):
+    """Produce the min and max datas from list."""
+    return dates[0], dates[-1] + dt.timedelta(days=1)
 
-    if data:
-        return json.loads(data)
+def fetch_cache(pending, r):
+    """Get cache data, returns rows and list of found datas."""
+    if not pending:
+        return [], []
+
+    rows = []
+    found = []
+
+    for date in pending[:]:
+        key = pd.to_datetime(date).strftime("%d-%m-%Y", dayfirst=True)
+        cached = r.get(key)
+
+        if cached is not None:
+            rows.append(json.loads(cached))
+            found.append(date)
+
+    return rows, found
+
+def fetch_db(pending):
+    """"Fetch all data in db."""
+    if not pending:
+        return []
+
+    connection = create_db_connection()
+    cursor = connection.cursor(cursor_factory=RealDictCursor)
+
+    query = "SELECT timestamp, temperature, humidity FROM data  WHERE timestamp > %s AND timestamp < %s ORDER BY timestamp DESC"
+
+    min_bound, max_bound = dates_boundaries(pending)
     
-    #Fetch db
-    data = get_data_db()
+    cursor.execute(query, [min_bound, max_bound])
 
-    if data:
-        r.setex("data", 900, json.dumps(data, default=str))
+    rows = cursor.fetchall()
 
-    return data    
+    cursor.close()
+    connection.close()
 
-def get_processed_data(timeframe_hours='all', start_date=None, end_date=None, page=1, limit=50): 
-    """Get stored data, return as object."""
+    return rows
 
-    rows = get_data()
+def cache_db_data(db_df, r):
+    try:
+        for date, group in db_df.groupby(db_df["timestamp"].dt.strftime("%d-%m-%Y")):
+            r.setex(
+                date,
+                900,
+                group.to_json(date_format="iso")
+            )
 
-    if not rows:
-        empty_stats = calculate_stats(pd.Series(dtype=float))
+    except:
+        print("No db data.")
 
-        return {
-            "data": [],
-            "timeframe_hours": timeframe_hours,
-            "temperature_infos": empty_stats,
-            "humidity_infos": empty_stats,
-            "pagination": {
-                "page": 1,
-                "limit": limit,
-                "total_pages": 1,
-                "total_records": 0
-            }
-        }
-
-    df = pd.DataFrame(rows)
-
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
-
-    # Postgres Decimal -> float
-    df['temperature'] = pd.to_numeric(df['temperature'])
-    df['humidity'] = pd.to_numeric(df['humidity'])
-
-    # Time filter
-    if start_date and end_date:
-        start_date = pd.to_datetime(start_date)
-        end_date = pd.to_datetime(end_date)
-
-        df = df.query("@start_date < timestamp < @end_date")
-
-    # Timeframe filter
-    elif timeframe_hours != 'all':
-        cutoff_time = dt.datetime.now() - dt.timedelta(hours=float(timeframe_hours))
-
-        df = df.query("timestamp > @cutoff_time")
-
-    total_records = len(df)
-    total_pages = math.ceil(total_records / limit)
-
-    if page < 1:
-        page = 1
-
-    if page > total_pages and total_pages > 1:
-        page = total_pages
-
-    start_index = (page - 1) * (limit * HOUR_STEPS)
-    end_index = start_index + (limit * HOUR_STEPS)
-
-    # Cut data to be rendered
-    paginated_df = df.iloc[end_index - 1:start_index:-HOUR_STEPS].copy()
-
-    paginated_df['timestamp'] = paginated_df['timestamp'].dt.strftime(
-        #'%Y-%m-%d %H:%M'
-        '%H:00'
-    )
-
-    temperature_stats = calculate_stats(paginated_df['temperature'])
-    humidity_stats = calculate_stats(paginated_df['humidity'])
-
-    data_list = paginated_df.to_dict('records')
-
-    return {
-        "data": data_list,
-        "timeframe_hours": timeframe_hours,
-        "temperature_infos": temperature_stats,
-        "humidity_infos": humidity_stats,
-        "pagination": {
-            "page": page,
-            "limit": limit,
-            "total_pages": total_pages,
-            "total_records": total_records
-        }
-    }
 
 @app.route("/")
 def index():
+    selected_date = request.args.get('date')
 
-    selected_data = request.args.get('date')
+    if selected_date:
+        # Get dates around the selected one
+        formatted_date = pd.to_datetime(selected_date, format="%d-%m-%Y")
+        pending_dates = dates_around(formatted_date)
 
+        r = create_cache_connection()
+        dfs = []
+
+        # Get cache data
+        cache_data, found_dates = fetch_cache(pending_dates, r)
+
+        pending_dates = [pd.to_datetime(date, format="%d-%m-%Y")
+                         for date in pending_dates if date not in found_dates]
+
+        if cache_data:
+            dfs.append(pd.DataFrame(cache_data))
+
+        # Get db data
+        if pending_dates:
+            db_data = fetch_db(pending_dates)
+
+            if db_data:
+                db_df = pd.DataFrame(db_data)
+                dfs.append(db_df)
+                cache_db_data(db_df, r)
+
+        df = pd.concat(dfs, ignore_index=True)
+
+        r.close()
+
+    # Calculate mean temperature and humidity for each hour
+    
+    # paginated_df['timestamp'] = paginated_df['timestamp'].dt.strftime(
+    #     '%d-%m-%Y %H:%M'
+    # )
     
     date_pos = 'left'
     
