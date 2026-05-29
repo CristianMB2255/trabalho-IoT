@@ -52,6 +52,10 @@ def dates_around(date, days_before=2, days_after=2):
 
 def dates_boundaries(dates):
     """Produce the min and max datas from list."""
+
+    if not dates: 
+        return None, None
+    
     return dates[0], dates[-1] + dt.timedelta(days=1)
 
 def fetch_cache(pending, r):
@@ -62,17 +66,17 @@ def fetch_cache(pending, r):
     rows = []
     found = []
 
-    for date in pending[:]:
-        key = pd.to_datetime(date).strftime("%d-%m-%Y", dayfirst=True)
+    for date in pending:
+        key = pd.to_datetime(date).strftime("%d-%m-%Y")
         cached = r.get(key)
 
         if cached is not None:
-            rows.append(json.loads(cached))
+            rows.extend(json.loads(cached))
             found.append(date)
 
     return rows, found
 
-def fetch_db(pending):
+def fetch_db(pending, min, max):
     """"Fetch all data in db."""
     if not pending:
         return []
@@ -81,10 +85,8 @@ def fetch_db(pending):
     cursor = connection.cursor(cursor_factory=RealDictCursor)
 
     query = "SELECT timestamp, temperature, humidity FROM data  WHERE timestamp > %s AND timestamp < %s ORDER BY timestamp DESC"
-
-    min_bound, max_bound = dates_boundaries(pending)
     
-    cursor.execute(query, [min_bound, max_bound])
+    cursor.execute(query, [min, max])
 
     rows = cursor.fetchall()
 
@@ -99,12 +101,11 @@ def cache_db_data(db_df, r):
             r.setex(
                 date,
                 900,
-                group.to_json(date_format="iso")
+                group.to_json(date_format="iso", orient="records")
             )
 
-    except:
-        print("No db data.")
-
+    except Exception as error:
+        print(error)
 
 @app.route("/")
 def index():
@@ -127,9 +128,11 @@ def index():
         if cache_data:
             dfs.append(pd.DataFrame(cache_data))
 
+        min_bound, max_bound = dates_boundaries(pending_dates)
+
         # Get db data
         if pending_dates:
-            db_data = fetch_db(pending_dates)
+            db_data = fetch_db(pending_dates, min_bound, max_bound)
 
             if db_data:
                 db_df = pd.DataFrame(db_data)
@@ -140,14 +143,12 @@ def index():
 
         r.close()
 
-    # Calculate mean temperature and humidity for each hour
-    
-    # paginated_df['timestamp'] = paginated_df['timestamp'].dt.strftime(
-    #     '%d-%m-%Y %H:%M'
-    # )
-    
-    date_pos = 'left'
-    
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+
+        df['timestamp'] = df['timestamp'].dt.strftime(
+            '%d-%m-%Y %H'
+        )
+
     def generate_chart():
         pts = []
         base = dt.datetime.fromisoformat("2024-05-20T00:00:00")
