@@ -67,7 +67,7 @@ def fetch_cache(pending, r):
     found = []
 
     for date in pending:
-        key = pd.to_datetime(date).strftime("%d-%m-%Y")
+        key = pd.to_datetime(date, dayfirst=True).strftime("%d-%m-%Y")
         cached = r.get(key)
 
         if cached is not None:
@@ -106,6 +106,59 @@ def cache_db_data(db_df, r):
 
     except Exception as error:
         print(error)
+
+def calculate_stats(series):
+    """Calculate stats for the given series."""
+    if series.empty:
+        return {
+            "min": None,
+            "max": None,
+            "mean": None
+        }
+    
+    return {
+        "min": round(series.min(), 1),
+        "max": round(series.max(), 1),
+        "mean": round(series.mean(), 1)
+    }
+
+def get_stats(df):
+    """Get stats for the given dataframe."""
+    if df.empty:
+        return None
+
+    df["temperature"] = pd.to_numeric(df["temperature"])
+    df["humidity"] = pd.to_numeric(df["humidity"])
+
+    df["timestamp"] = pd.to_datetime(
+        df["timestamp"],
+        format="%d-%m-%Y %H"
+    )
+
+    grouped = df.groupby(df["timestamp"].dt.strftime("%d-%m-%Y"))
+    stats_df = pd.DataFrame()
+
+    rows = []
+
+    for day, group in grouped:
+        temperature_stats = calculate_stats(group["temperature"])
+        humidity_stats = calculate_stats(group["humidity"])
+
+        rows.append({
+            "day": day,
+
+            "temp_min": temperature_stats["min"],
+            "temp_max": temperature_stats["max"],
+            "temp_mean": temperature_stats["mean"],
+
+            "hum_min": humidity_stats["min"],
+            "hum_max": humidity_stats["max"],
+            "hum_mean": humidity_stats["mean"]
+        })
+
+    stats_df = pd.DataFrame(rows)
+
+    return stats_df
 
 @app.route("/")
 def index():
@@ -148,6 +201,8 @@ def index():
         df['timestamp'] = df['timestamp'].dt.strftime(
             '%d-%m-%Y %H'
         )
+
+        stats = get_stats(df)
 
     def generate_chart():
         pts = []
@@ -206,6 +261,8 @@ def index():
             
             "chart_data": generate_chart()
         }
+        
+    date_pos = 'left'
     
     if date_pos == 'left':
         dtt.update({'selected_date_position': 'left'})
