@@ -1,6 +1,6 @@
 import pandas as pd
 import datetime as dt
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, jsonify
 import math
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -71,6 +71,7 @@ def fetch_cache(pending, r):
         cached = r.get(key)
 
         if cached is not None:
+            print("Cache hit") # !!!
             rows.extend(json.loads(cached))
             found.append(date)
 
@@ -95,14 +96,22 @@ def fetch_db(pending, min, max):
 
     return rows
 
-def cache_db_data(db_df, r):
+def cache_db_data(db_df, pending_dates, r):
     try:
+        cached_dates = set()
+
         for date, group in db_df.groupby(db_df["timestamp"].dt.strftime("%d-%m-%Y")):
             r.setex(
                 date,
                 900,
                 group.to_json(date_format="iso", orient="records")
             )
+            cached_dates.add(date)
+
+        for date in pending_dates:
+            key = date.strftime("%d-%m-%Y")
+            if key not in cached_dates:
+                r.setex(key, 900, "[]")
 
     except Exception as error:
         print(error)
@@ -165,6 +174,7 @@ def index():
     selected_date = request.args.get('date')
 
     if selected_date:
+
         # Get dates around the selected one
         formatted_date = pd.to_datetime(selected_date, format="%d-%m-%Y")
         pending_dates = dates_around(formatted_date)
@@ -183,26 +193,31 @@ def index():
 
         min_bound, max_bound = dates_boundaries(pending_dates)
 
-        # Get db data
         if pending_dates:
             db_data = fetch_db(pending_dates, min_bound, max_bound)
 
             if db_data:
                 db_df = pd.DataFrame(db_data)
                 dfs.append(db_df)
-                cache_db_data(db_df, r)
+            else:
+                db_df = pd.DataFrame(columns=["timestamp", "temperature", "humidity"])
 
-        df = pd.concat(dfs, ignore_index=True)
+            db_df["timestamp"] = pd.to_datetime(db_df["timestamp"])
+            cache_db_data(db_df, pending_dates, r)
 
         r.close()
 
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        if not dfs:
+            return jsonify([])
 
-        df['timestamp'] = df['timestamp'].dt.strftime(
-            '%d-%m-%Y %H'
-        )
+        df = pd.concat(dfs, ignore_index=True)
+
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df['timestamp'] = df['timestamp'].dt.strftime('%d-%m-%Y %H')
 
         stats = get_stats(df)
+
+        print(stats) # !!!
 
     def generate_chart():
         pts = []
@@ -239,30 +254,30 @@ def index():
                 "mean_temperature": 19.5
             },
             "prev": {
-                "date": "19-05-2026",
-                "temperature": 18,
-                "humidity": 56
+                "date": stats.iloc[1]["day"],
+                "temperature": stats.iloc[1]["temp_mean"],
+                "humidity": stats.iloc[1]["hum_mean"]
             },
             "prev2": {
-                "date": "18-05-2026",
-                "temperature": 17,
-                "humidity": 60
+                "date": stats.iloc[0]["day"],
+                "temperature": stats.iloc[0]["temp_mean"],
+                "humidity": stats.iloc[0]["hum_mean"]
             },
             "next": {
-                "date": "21-05-2026",
-                "temperature": 20,
-                "humidity": 52
+                "date": stats.iloc[3]["day"],
+                "temperature": stats.iloc[3]["temp_mean"],
+                "humidity": stats.iloc[3]["hum_mean"]
             },
             "next2": {
-                "date": "22-05-2026",
-                "temperature": 21,
-                "humidity": 53
+                "date": stats.iloc[4]["day"],
+                "temperature": stats.iloc[4]["temp_mean"],
+                "humidity": stats.iloc[4]["hum_mean"]
             },
             
             "chart_data": generate_chart()
         }
         
-    date_pos = 'left'
+    date_pos = 'right'
     
     if date_pos == 'left':
         dtt.update({'selected_date_position': 'left'})
