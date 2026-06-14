@@ -108,6 +108,7 @@ def cache_db_data(db_df, pending_dates, r):
             )
             cached_dates.add(date)
 
+        # Prevent fetching a non-existent date in db
         for date in pending_dates:
             key = date.strftime("%d-%m-%Y")
             if key not in cached_dates:
@@ -116,25 +117,10 @@ def cache_db_data(db_df, pending_dates, r):
     except Exception as error:
         print(error)
 
-def calculate_stats(series):
-    """Calculate stats for the given series."""
-    if series.empty:
-        return {
-            "min": None,
-            "max": None,
-            "mean": None
-        }
-    
-    return {
-        "min": round(series.min(), 1),
-        "max": round(series.max(), 1),
-        "mean": round(series.mean(), 1)
-    }
-
 def get_stats(df):
     """Get stats for the given dataframe."""
     if df.empty:
-        return None
+        return pd.DataFrame({"day": [None]})
 
     df["temperature"] = pd.to_numeric(df["temperature"])
     df["humidity"] = pd.to_numeric(df["humidity"])
@@ -169,67 +155,90 @@ def get_stats(df):
 
     return stats_df
 
+def calculate_stats(series):
+    """Calculate stats for the given series."""
+    if series.empty:
+        return {
+            "min": None,
+            "max": None,
+            "mean": None
+        }
+    
+    return {
+        "min": round(series.min(), 1),
+        "max": round(series.max(), 1),
+        "mean": round(series.mean(), 1)
+    }
+
 def get_day_stats(stats_df, date):
     """Return stats for a date, None if missing from stats_df."""
     row = stats_df[stats_df["day"] == date]
 
     if row.empty:
-        return {"date": date, "temperature": None, "humidity": None}
+        return {"date": date,
+                "temperature": None,
+                "humidity": None,
+                "loaded": False
+                }
 
     row = row.iloc[0]
     return {
         "date": date,
         "temperature": row["temp_mean"],
-        "humidity": row["hum_mean"]
+        "humidity": row["hum_mean"],
+        "loaded": True
     }
 
 @app.route("/")
 def index():
     selected_date = request.args.get('date')
 
-    if selected_date:
+    if not selected_date:
+        selected_date = dt.datetime.today().strftime('%d-%m-%Y')
 
-        # Get dates around the selected one
-        formatted_date = pd.to_datetime(selected_date, format="%d-%m-%Y")
-        all_dates = dates_around(formatted_date)
-        pending_dates = all_dates
+    # Get dates around the selected one
+    formatted_date = pd.to_datetime(selected_date, format="%d-%m-%Y")
+    all_dates = dates_around(formatted_date)
+    pending_dates = all_dates
 
-        r = create_cache_connection()
-        dfs = []
+    r = create_cache_connection()
+    dfs = []
 
-        # Get cache data
-        cache_data, found_dates = fetch_cache(pending_dates, r)
+    # Get cache data
+    cache_data, found_dates = fetch_cache(pending_dates, r)
 
-        pending_dates = [pd.to_datetime(date, format="%d-%m-%Y")
-                         for date in pending_dates if date not in found_dates]
+    pending_dates = [pd.to_datetime(date, format="%d-%m-%Y")
+                        for date in pending_dates if date not in found_dates]
 
-        if cache_data:
-            dfs.append(pd.DataFrame(cache_data))
+    if cache_data:
+        dfs.append(pd.DataFrame(cache_data))
 
-        if pending_dates:
-            min_bound, max_bound = dates_boundaries(pending_dates)
-            db_data = fetch_db(pending_dates, min_bound, max_bound)
+    if pending_dates:
+        min_bound, max_bound = dates_boundaries(pending_dates)
+        db_data = fetch_db(pending_dates, min_bound, max_bound)
 
-            if db_data:
-                db_df = pd.DataFrame(db_data)
-                dfs.append(db_df)
-            else:
-                db_df = pd.DataFrame(columns=["timestamp", "temperature", "humidity"])
+        if db_data:
+            db_df = pd.DataFrame(db_data)
+            dfs.append(db_df)
+        else:
+            db_df = pd.DataFrame(columns=["timestamp", "temperature", "humidity"])
 
-            db_df["timestamp"] = pd.to_datetime(db_df["timestamp"])
-            cache_db_data(db_df, pending_dates, r)
+        db_df["timestamp"] = pd.to_datetime(db_df["timestamp"])
+        cache_db_data(db_df, pending_dates, r)
 
-        r.close()
+    r.close()
 
-        if not dfs:
-            return jsonify([])
-
+    if dfs:
         df = pd.concat(dfs, ignore_index=True)
 
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df['timestamp'] = df['timestamp'].dt.strftime('%d-%m-%Y %H')
+    else:
+        df = pd.DataFrame()
 
-        stats = get_stats(df)
+    stats = get_stats(df)
+
+    print(stats)
 
     def generate_chart():
         pts = []
@@ -265,54 +274,18 @@ def index():
         "next2": get_day_stats(stats, all_dates[4]),
         "chart_data": generate_chart()
     }
-        
-    date_pos = 'right'
-    
-    if date_pos == 'left':
-        dtt.update({'selected_date_position': 'left'})
-    elif date_pos == 'middle':
-        dtt.update({'selected_date_position': 'middle'})
-    elif date_pos == 'right':
+
+    dtt.update({'selected_date_position': 'middle'})
+
+    if not dtt['next']['loaded']:
         dtt.update({'selected_date_position': 'right'})
+
+    elif not dtt['prev']['loaded']:
+        dtt.update({'selected_date_position': 'left'})
 
     return render_template(
         "index.html",
         data=(dtt)
-    )
-    
-    start_date = request.args.get('start_date')
-    end_date = request.args.get('end_date')
-    filter_arg = request.args.get('filter', 'all')
-    
-    try:
-        page = int(request.args.get('page', 1))
-    except ValueError:
-        page = 1
-
-    try:
-        limit = int(request.args.get('limit', 50))
-    except ValueError:
-        limit = 50
-
-    try:
-        timeframe_hours = float(filter_arg[:-1])   
-    except:
-        timeframe_hours = 'all'
-    
-    data_to_render = get_processed_data(
-        timeframe_hours=timeframe_hours,
-        start_date=start_date,
-        end_date=end_date,
-        page=page,
-        limit=limit
-    )
-    
-    return render_template(
-        "index.html",
-        data=data_to_render,
-        start_date=start_date,
-        end_date=end_date,
-        current_filter=filter_arg
     )
 
 if __name__ == '__main__':
