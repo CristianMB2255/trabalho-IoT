@@ -169,6 +169,20 @@ def get_stats(df):
 
     return stats_df
 
+def get_day_stats(stats_df, date):
+    """Return stats for a date, None if missing from stats_df."""
+    row = stats_df[stats_df["day"] == date]
+
+    if row.empty:
+        return {"date": date, "temperature": None, "humidity": None}
+
+    row = row.iloc[0]
+    return {
+        "date": date,
+        "temperature": row["temp_mean"],
+        "humidity": row["hum_mean"]
+    }
+
 @app.route("/")
 def index():
     selected_date = request.args.get('date')
@@ -177,7 +191,8 @@ def index():
 
         # Get dates around the selected one
         formatted_date = pd.to_datetime(selected_date, format="%d-%m-%Y")
-        pending_dates = dates_around(formatted_date)
+        all_dates = dates_around(formatted_date)
+        pending_dates = all_dates
 
         r = create_cache_connection()
         dfs = []
@@ -191,9 +206,8 @@ def index():
         if cache_data:
             dfs.append(pd.DataFrame(cache_data))
 
-        min_bound, max_bound = dates_boundaries(pending_dates)
-
         if pending_dates:
+            min_bound, max_bound = dates_boundaries(pending_dates)
             db_data = fetch_db(pending_dates, min_bound, max_bound)
 
             if db_data:
@@ -216,8 +230,6 @@ def index():
         df['timestamp'] = df['timestamp'].dt.strftime('%d-%m-%Y %H')
 
         stats = get_stats(df)
-
-        print(stats) # !!!
 
     def generate_chart():
         pts = []
@@ -246,36 +258,13 @@ def index():
         return pts
     
     dtt = {
-            # "is_latest": True,
-            "current": {
-                "date": "20-05-2026",
-                "temperature": 19,
-                "humidity": 55,
-                "mean_temperature": 19.5
-            },
-            "prev": {
-                "date": stats.iloc[1]["day"],
-                "temperature": stats.iloc[1]["temp_mean"],
-                "humidity": stats.iloc[1]["hum_mean"]
-            },
-            "prev2": {
-                "date": stats.iloc[0]["day"],
-                "temperature": stats.iloc[0]["temp_mean"],
-                "humidity": stats.iloc[0]["hum_mean"]
-            },
-            "next": {
-                "date": stats.iloc[3]["day"],
-                "temperature": stats.iloc[3]["temp_mean"],
-                "humidity": stats.iloc[3]["hum_mean"]
-            },
-            "next2": {
-                "date": stats.iloc[4]["day"],
-                "temperature": stats.iloc[4]["temp_mean"],
-                "humidity": stats.iloc[4]["hum_mean"]
-            },
-            
-            "chart_data": generate_chart()
-        }
+        "current": get_day_stats(stats, all_dates[2]),
+        "prev": get_day_stats(stats, all_dates[1]),
+        "prev2": get_day_stats(stats, all_dates[0]),
+        "next": get_day_stats(stats, all_dates[3]),
+        "next2": get_day_stats(stats, all_dates[4]),
+        "chart_data": generate_chart()
+    }
         
     date_pos = 'right'
     
