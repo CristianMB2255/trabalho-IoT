@@ -1,12 +1,10 @@
 import pandas as pd
 import datetime as dt
-from flask import Flask, render_template, request, jsonify
-import math
+from flask import Flask, render_template, request 
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import os
 import redis
-import random
 import json
 
 app = Flask(__name__)
@@ -20,9 +18,6 @@ redis_port = os.getenv("RPORT")
 redis_user = os.getenv("RUSER")
 redis_pass = os.getenv("RPASS")
 
-# Data stored every 10 minutes, takes X steps to a complete an hour
-HOUR_STEPS = 6 
- 
 def create_db_connection():
     """Create database connection with PostgreSQL."""
     return psycopg2.connect(
@@ -33,7 +28,7 @@ def create_db_connection():
                 sslmode="require"
             ) 
 
-def create_cache_connection():
+def create_redis_connection():
     """Create connection with redis cache."""
     return redis.Redis(
         host=redis_host,
@@ -43,15 +38,41 @@ def create_cache_connection():
         password=redis_pass,
     )
 
+def normalize_data(df):
+    """Convert data to a standard format."""
+    if df.empty:
+        # Typed columns so .dt/.mean still work on empty data
+        return pd.DataFrame({
+            "timestamp": pd.Series(dtype="datetime64[ns]"),
+            "temperature": pd.Series(dtype="float64"),
+            "humidity": pd.Series(dtype="float64"),
+        })
+
+    df = df.copy()
+
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+
+    df["temperature"] = pd.to_numeric(
+        df["temperature"],
+        errors="coerce"
+    )
+
+    df["humidity"] = pd.to_numeric(
+        df["humidity"],
+        errors="coerce"
+    )
+
+    return df
+
 def dates_around(date, days_before=2, days_after=2):
     """Produce a list containing the surrounding dates."""
     return [
-        (date + dt.timedelta(days=i)).strftime("%d-%m-%Y")
+        date + dt.timedelta(days=i)
         for i in range(-days_before, days_after + 1)
     ]
 
 def dates_boundaries(dates):
-    """Produce the min and max datas from list."""
+    """Produce the min and max dates from list."""
 
     if not dates: 
         return None, None
@@ -67,17 +88,16 @@ def fetch_cache(pending, r):
     found = []
 
     for date in pending:
-        key = pd.to_datetime(date, dayfirst=True).strftime("%d-%m-%Y")
+        key = date.strftime("%d-%m-%Y")
         cached = r.get(key)
 
         if cached is not None:
-            print("Cache hit") # !!!
             rows.extend(json.loads(cached))
             found.append(date)
 
     return rows, found
 
-def fetch_db(pending, min, max):
+def fetch_db(pending):
     """"Fetch all data in db."""
     if not pending:
         return []
@@ -85,8 +105,9 @@ def fetch_db(pending, min, max):
     connection = create_db_connection()
     cursor = connection.cursor(cursor_factory=RealDictCursor)
 
-    query = "SELECT timestamp, temperature, humidity FROM data  WHERE timestamp > %s AND timestamp < %s ORDER BY timestamp DESC"
+    query = "SELECT timestamp, temperature, humidity FROM data  WHERE timestamp >= %s AND timestamp < %s ORDER BY timestamp DESC"
     
+    min, max = dates_boundaries(pending)
     cursor.execute(query, [min, max])
 
     rows = cursor.fetchall()
@@ -100,13 +121,14 @@ def cache_db_data(db_df, pending_dates, r):
     try:
         cached_dates = set()
 
-        for date, group in db_df.groupby(db_df["timestamp"].dt.strftime("%d-%m-%Y")):
-            r.setex(
-                date,
-                900,
-                group.to_json(date_format="iso", orient="records")
-            )
-            cached_dates.add(date)
+        if not db_df.empty:
+            for date, group in db_df.groupby(db_df["timestamp"].dt.strftime("%d-%m-%Y")):
+                r.setex(
+                    date,
+                    900,
+                    group.to_json(date_format="iso", orient="records")
+                )
+                cached_dates.add(date)
 
         # Prevent fetching a non-existent date in db
         for date in pending_dates:
@@ -122,15 +144,7 @@ def get_stats(df):
     if df.empty:
         return pd.DataFrame({"day": [None]})
 
-    df["temperature"] = pd.to_numeric(df["temperature"])
-    df["humidity"] = pd.to_numeric(df["humidity"])
-
-    df["timestamp"] = pd.to_datetime(
-        df["timestamp"],
-        format="%d-%m-%Y %H"
-    )
-
-    grouped = df.groupby(df["timestamp"].dt.strftime("%d-%m-%Y"))
+    grouped = df.groupby(df["timestamp"].dt.date)
     stats_df = pd.DataFrame()
 
     rows = []
@@ -157,6 +171,7 @@ def get_stats(df):
 
 def calculate_stats(series):
     """Calculate stats for the given series."""
+    series = series.dropna()
     if series.empty:
         return {
             "min": None,
@@ -172,107 +187,103 @@ def calculate_stats(series):
 
 def get_day_stats(stats_df, date):
     """Return stats for a date, None if missing from stats_df."""
-    row = stats_df[stats_df["day"] == date]
+    row = stats_df[stats_df["day"] == date.date()]
 
     if row.empty:
-        return {"date": date,
-                "temperature": None,
-                "humidity": None,
-                "loaded": False
-                }
+        return {
+            "date": date.strftime("%d-%m-%Y"),
+            "temperature": None,
+            "humidity": None,
+            "loaded": False
+        }
 
     row = row.iloc[0]
     return {
-        "date": date,
+        "date": date.strftime("%d-%m-%Y"),
         "temperature": row["temp_mean"],
         "humidity": row["hum_mean"],
         "loaded": True
     }
 
+def generate_chart(df):
+    df = df.copy()
+
+    grouped = df.groupby(df["timestamp"].dt.floor("h"), as_index=False).agg(
+        temperature=("temperature", "mean"),
+        humidity=("humidity", "mean")
+    ).dropna()
+
+    pts = []
+    for _, row in grouped.iterrows():
+        pts.append({
+            "timestamp": row["timestamp"].strftime("%H:%M"),
+            "temperature": round(row["temperature"], 1),
+            "humidity": round(row["humidity"], 1)
+        })
+
+    return pts
+
 @app.route("/")
 def index():
-    selected_date = request.args.get('date')
+    selected_date = request.args.get("date")
 
-    if not selected_date:
-        selected_date = dt.datetime.today().strftime('%d-%m-%Y')
+    if selected_date:
+        selected_date = pd.to_datetime(selected_date, format="%d-%m-%Y")
+    else:
+        selected_date = pd.Timestamp.today().normalize()
 
-    # Get dates around the selected one
-    formatted_date = pd.to_datetime(selected_date, format="%d-%m-%Y")
+    formatted_date = selected_date
+
+    # Get important date informations
     all_dates = dates_around(formatted_date)
     pending_dates = all_dates
 
-    r = create_cache_connection()
+    r = create_redis_connection()
     dfs = []
-
-    # Get cache data
+    
     cache_data, found_dates = fetch_cache(pending_dates, r)
 
-    pending_dates = [pd.to_datetime(date, format="%d-%m-%Y")
-                        for date in pending_dates if date not in found_dates]
+    if found_dates:
+        pending_dates = [date for date in pending_dates if date not in found_dates]
 
-    if cache_data:
-        dfs.append(pd.DataFrame(cache_data))
+        cache_df = normalize_data(pd.DataFrame(cache_data))
+        dfs.append(cache_df)
 
     if pending_dates:
-        min_bound, max_bound = dates_boundaries(pending_dates)
-        db_data = fetch_db(pending_dates, min_bound, max_bound)
+        db_data = fetch_db(pending_dates)
 
-        if db_data:
-            db_df = pd.DataFrame(db_data)
-            dfs.append(db_df)
-        else:
-            db_df = pd.DataFrame(columns=["timestamp", "temperature", "humidity"])
+        if not db_data:
+            db_data = pd.DataFrame(columns=["timestamp", "temperature", "humidity"])
 
-        db_df["timestamp"] = pd.to_datetime(db_df["timestamp"])
-        cache_db_data(db_df, pending_dates, r)
+        db_df = normalize_data(pd.DataFrame(db_data))
+        dfs.append(db_df)
+
+        cache_db_data(db_df, pending_dates, r)  
 
     r.close()
 
     if dfs:
         df = pd.concat(dfs, ignore_index=True)
-
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-        df['timestamp'] = df['timestamp'].dt.strftime('%d-%m-%Y %H')
+        df = normalize_data(df)
     else:
-        df = pd.DataFrame()
+        df = normalize_data(
+            pd.DataFrame(columns=["timestamp", "temperature", "humidity"])
+        )
+
+    result = df[
+        df["timestamp"].dt.date == selected_date.date()
+    ]
 
     stats = get_stats(df)
-
-    print(stats)
-
-    def generate_chart():
-        pts = []
-        base = dt.datetime.fromisoformat("2024-05-20T00:00:00")
-
-        for i in range(24):
-            t = base + dt.timedelta(hours=i)
-
-            pts.append({
-                "timestamp": t.strftime("%H:%M"),
-                "temperature": round(
-                    17.8
-                    + math.sin(i / 6) * 1.2
-                    + i * 0.04
-                    + (random.random() - 0.5) * 0.3,
-                    1
-                ),
-                "humidity": round(
-                    55
-                    + math.cos(i / 5) * 4
-                    + (random.random() - 0.5) * 2,
-                    1
-                )
-            })
-
-        return pts
     
     dtt = {
+        # all_dates = [prev2, prev, current, next, next2]
         "current": get_day_stats(stats, all_dates[2]),
         "prev": get_day_stats(stats, all_dates[1]),
         "prev2": get_day_stats(stats, all_dates[0]),
         "next": get_day_stats(stats, all_dates[3]),
         "next2": get_day_stats(stats, all_dates[4]),
-        "chart_data": generate_chart()
+        "chart_data": generate_chart(result)
     }
 
     dtt.update({'selected_date_position': 'middle'})

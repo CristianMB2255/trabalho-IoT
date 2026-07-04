@@ -17,7 +17,7 @@ function normalizeDate(date) {
 
 function createSecondaryCard(day) {
     return `
-            <div class="card day-card" onclick="updateUrl({ date: '${day?.date || "N/D"}'})">
+            <div class="card day-card" onclick="updateUrl({ date: '${day?.date || ""}'})">
                 <div class="date">${normalizeDate(day?.date) || "N/D"}</div>
                 <div class="icon"><i class="ph-duotone ph-cloud-sun icon-weather"></i></div>
                 <div class="card-index active-index temperature"><i class="ph-duotone ph-thermometer icon-temp"></i>${day?.temperature || "N/D"}°C</div>
@@ -64,6 +64,8 @@ const createDataSet = ((key) => {
         backgroundColor: tabs[key].gradient,
     }
 });
+
+window.history.replaceState({}, document.title, '/');
 
 // Create cards
 const container = document.getElementById('top-container');
